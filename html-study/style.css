@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Rubik+Wet+Paint&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300&family=Rubik+Wet+Paint&display=swap');
+
+body {
+    background-color: aquamarine;
+    font-family: 'Kanit', sans-serif;
+}
+
+h1 {
+    font-family: 'Rubik Wet Paint', cursive;
+    font-size: 48px;
+}
+
+h2 {
+    margin: 0px;
+}
+
+ol {
+    margin: 0px;
+}
+
+.avatar {
+    align-self: center;
+    height: 100px;
+    border-radius: 20px;
+    box-shadow: 10px 10px 10px rgba(0, 0, 0, 0.5);
+}
+
+.naebka a {
+    font-style: italic;
+    color: white;
+    font-size: 24px;
+}
+
+.naebka {
+    background-color: white;
+}
+
+.container {
+    max-width: 800px;
+    margin: auto;
+}
+
+a {
+    color: pink;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+    color: yellowgreen;
+}
+
+.card {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 15px 20px;
+    margin-bottom: 20px;
+    border-radius: 20px;
+}
+
+.card > * {
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 10px;
+}
+
+.bg-white {
+    background-color: white;
+}
+
+.bg-blue {
+    background-color: blue;
+}
+
+.bg-red {
+    background-color: red;
+}
