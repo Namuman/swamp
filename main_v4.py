@@ -24,7 +24,7 @@ steps_limit = 50
 
 ### Import of Components Properties and Binary Interraction Coefficients Databases
 cwd = os.getcwd()
-comppropDB = pd.read_excel(intrf.get_comppropDB_names(cwd)[1], index_col= 'Name')
+comppropDB = pd.read_excel(intrf.get_comppropDB_names(cwd)[0], index_col= 'Name')
 binarycoefDB = pd.read_excel(intrf.get_binarycoefDB_names(cwd)[0], index_col= 'index_col')
 
 
@@ -74,30 +74,44 @@ composition_check = pd.DataFrame({(equicomp_df['vapor'].sum(),
 								 index= ['TOTAL'])
 
 print(composition_check)
-print('\nVapor fraction (mol.): {:.5f}\nLiquid Fraction (mol.): {:.5f}\nAqueous Fraction (mol.): {:.5f}'.format(phase_fractions['V'],
-																											phase_fractions['L'],
-																											phase_fractions['Q']))
+print('\nVapor fraction (mol.): {:.5f}\nLiquid Fraction (mol.): {:.5f}\nAqueous Fraction (mol.): {:.5f}'.format(phase_fractions['vapor'],
+																											phase_fractions['liquid'],
+																											phase_fractions['aqueous']))
 
 
 ### PHYSICAL PROPERTIES CALCULATIONS
 print('\n\nPhase properties:')
-liquid_density = calc.get_liquid_phase_density(comppropDB, equicomp_df, T_field, 'liquid')
-aqueous_density = calc.get_liquid_phase_density(comppropDB, equicomp_df, T_field, 'aqueous')
+'''
 vapor_density = calc.get_vapor_phase_density(comppropDB, equicomp_df, P_field, T_field, zfactors.loc['vapor']['zj'])
-print('Vapor phase Density [kg/m3]:\t {:.2f}'.format(vapor_density))
-print('Liquid phase Density [kg/m3]:\t {:.2f}'.format(liquid_density))
-print('Aqueous phase Density [kg/m3]:\t {:.2f}'.format(aqueous_density))
+liquid_density = calc.get_liquid_phase_density(comppropDB, equicomp_df, T_field, 'liquid')
 
-densities = pd.Series([vapor_density, liquid_density, aqueous_density], index=['V', 'L', 'Q'])
+if input_streamcomp.loc['H2O']['Content [mol. fract.]'] == 0:
+	phases_num = 2
+	aqueous_density = np.nan
+else:
+	phases_num = 3
+	aqueous_density = calc.get_liquid_phase_density(comppropDB, equicomp_df, T_field, 'aqueous')
+'''
+
+densities = calc.get_phase_densities_actcond(comppropDB,
+											 equicomp_df,
+											 phase_fractions,
+											 P_field,
+											 T_field,
+											 zfactors)
+print('Vapor phase Density [kg/m3]:\t {:.2f}'.format(densities['vapor']))
+print('Liquid phase Density [kg/m3]:\t {:.2f}'.format(densities['liquid']))
+print('Aqueous phase Density [kg/m3]:\t {:.2f}'.format(densities['aqueous']))
+
 phaseMW = pd.Series([calc.get_phase_molar_weigh(comppropDB, equicomp_df, 'vapor'),
 					 calc.get_phase_molar_weigh(comppropDB, equicomp_df, 'liquid'),
 					 calc.get_phase_molar_weigh(comppropDB, equicomp_df, 'aqueous')], index=['V', 'L', 'Q'])
-print('mixro={}'.format(calc.get_mix_density(densities, phase_fractions, phaseMW)))
+# print('mixro={}'.format(calc.get_mix_density(densities, phase_fractions, phaseMW)))
 
 ### DOES NOT WORK STABLE WITH WATER AD DOES NOT WORK WITHOUT WATER !!!
 
-print('MW vapor:\t{}\nMW liquid:\t{}\nMW aqueous:\t'.format(calc.get_phase_molar_weigh(comppropDB, equicomp_df, 'vapor'),
-															calc.get_phase_molar_weigh(comppropDB, equicomp_df, 'liquid')))
+# print('MW vapor:\t{}\nMW liquid:\t{}\nMW aqueous:\t'.format(calc.get_phase_molar_weigh(comppropDB, equicomp_df, 'vapor'),
+# 															calc.get_phase_molar_weigh(comppropDB, equicomp_df, 'liquid')))
 
 
 print('\nExecution time: {:.1f} ms\n'.format((time.perf_counter() - start_time) * 1000))
@@ -110,6 +124,7 @@ try:
 except:
 	print('Failed to write down results')
 
+
 print('Open output file? ("y" - yes, "n" - no)')
 confirm = str(input())
 if confirm == 'y':
@@ -118,5 +133,6 @@ if confirm == 'y':
 	except:
 		print('Failed to open file')
 
-# check_df = ([0.919783235, 0.047922284, 0.014828746, 0.003731263, 0.002115643, 0.000428368, 0.000361431, 0.000182001, 4.52983E-05, 0, 0, 0, 0.010600829, 0])
-# print('TEST PASSED: {}'.format((abs(equicomp_df_sum['vapor'] - check_df) < 10e-10).all()))
+
+check_df = ([0.919783235, 0.047922284, 0.014828746, 0.003731263, 0.002115643, 0.000428368, 0.000361431, 0.000182001, 4.52983E-05, 0, 0, 0, 0.010600829, 0])
+print('\nTEST PASSED: {}'.format((abs(equicomp_df['vapor'] - check_df) < 10e-6).all()))
