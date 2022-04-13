@@ -1,3 +1,7 @@
+'''
+_v4.3
+'''
+
 import math
 import sys
 
@@ -58,9 +62,15 @@ def get_zfactor(Aj: float,
         smallvar = 0  # introduced to avoid problems when expression is too small
     else:
         smallvar = (q ** 3 + r ** 2) ** (1 / 2)
+    if np.isnan(smallvar):
+        smallvar = 0
+    # print('smallvar param =', (q ** 3 + r ** 2))
+    # print('smallvar =',smallvar)
+    # print('r =', r)
+    # print('r + smallvar =', r +smallvar)
     s1 = np.cbrt(r + smallvar)
     s2 = np.cbrt(r - smallvar)
-    # print('-->', s1, s2)
+    # print('s1 = {}\ns2 = {}'.format(s1, s2))
     z1 = (s1 + s2) - a2 / 3
     z2 = complex(-1/2 * (s1 + s2) - a2 / 3, (3**(1/2)) / 2 * (s1 - s2))
     z3 = complex(-1/2 * (s1 + s2) - a2 / 3, -(3**(1/2)) / 2 * (s1 - s2))
@@ -97,6 +107,7 @@ def get_zfactor(Aj: float,
         except:  # ATTENTION!
             if Bj > 0:
                 zfactor = Bj
+                print('Bj =', Bj)
             else:
                 zfactor = 10**-5
     return zfactor
@@ -112,7 +123,7 @@ def Kvalues_comparison(Kvalues_df1: pd.DataFrame,  # For the time - comparison o
 def get_equilibrium_composition_v1(streamcompostion: pd.DataFrame,
                                    Kvalues_df: pd.DataFrame,
                                    show_log: bool):
-    locconvcrit = 1e-4
+    locconvcrit = 1e-10  ### This criteria directly affects stability tests
     start_time = time.perf_counter()
     if show_log:
         print('\nCalculating equilibrium compositions...')
@@ -148,7 +159,7 @@ def get_equilibrium_composition_v1(streamcompostion: pd.DataFrame,
             print('\tEquilibrium composition vapor/liquid converged!')
     else:
         if abs(check_mid) <= 0.05:
-            if show_log:
+            if True:
                 print('\tEquilibrium composition vapor/liquid DID NOT converge in 15 interation, but still OK')
         else:
             print('\tWARNING! Equilibrium composition vapor/liquid DID NOT converge!')
@@ -157,8 +168,51 @@ def get_equilibrium_composition_v1(streamcompostion: pd.DataFrame,
     return result_df, L_mid
 
 
-# Supposed to work with three phases but do not
 def get_equilibrium_composition_v2(streamcompostion: pd.DataFrame,
+                                   Kvalues_df: pd.DataFrame,
+                                   locconvcrit: float,   ### This criteria directly affects stability tests
+                                   show_log: bool):
+    start_time = time.perf_counter()
+    if show_log:
+        print('\nCalculating equilibrium compositions...')
+    df = pd.DataFrame({'xi': streamcompostion['Content [mol. fract.]'],
+                       'Kij': Kvalues_df['Kij']}, index= streamcompostion.index)
+    result_df = pd.DataFrame(columns= ['vapor', 'liquid'], index= df.index)
+    def convergence_func(df: pd.DataFrame, L: float):
+        Kij_arr = np.array(df['Kij'])
+        res_arr = np.array(df['xi']) / (L + (1 - L) * Kij_arr)
+        check_parameter = np.sum(res_arr) - 1
+        result_df['liquid'] = res_arr
+        result_df['vapor'] = res_arr * Kij_arr
+        return check_parameter
+    L_left = 0
+    L_right = 1
+    L_mid = (L_left + L_right) / 2
+    steps_counter = 0
+    check_mid = locconvcrit + 1
+    check_l = check_mid + 1
+    while abs(check_mid) > locconvcrit:
+        if steps_counter > 150 or abs(check_mid - check_l) <= locconvcrit:
+            print('ERROR! Equilibrium compositions did not converged in {} iterations! Residual error {:.3e}'.format(steps_counter,
+                                                                                                                     (check_mid)))
+            break
+        steps_counter += 1
+        L_mid = (L_left + L_right) / 2
+        check_l = convergence_func(df, L_left)
+        check_mid = convergence_func(df, L_mid)
+        if check_l * check_mid < 0:
+            L_right = L_mid
+        else:
+            L_left = L_mid
+        if show_log:
+            print('\t\tvapor-liquid,\tstep-{:d},\tL = {:.4f},\tcheck = {:.3e}'.format(steps_counter, L_mid, check_mid))
+    if show_log:
+        print('Converged in {} steps. Residual error: {:.2e}'.format(steps_counter, check_mid))
+    return result_df, L_mid
+
+
+# Supposed to work with three phases but do not
+def get_equilibrium_composition_v3(streamcompostion: pd.DataFrame,
                                    Kvalues_df: pd.DataFrame,
                                    show_log: bool):
     start_time = time.perf_counter()
@@ -262,7 +316,6 @@ def get_initial_Kvalues(comppropDB: pd.DataFrame,
     Kvalues_df['Kij'] = 1 / Pr_arr * math.e ** (5.37 * (1 + w_arr) * (1 - 1 / Tr_arr))
     '''
     Expression below for vapor - aqueous phase K-values initial guesses does not lead to adequate results
-    
         Kvalues_df['Kij'] = 10 ** 6 * (Pr_arr / Tr_arr)
     '''
     return Kvalues_df
@@ -336,7 +389,7 @@ def get_fugacities(streamcomp:pd.DataFrame,
                    phasevar_df: pd.DataFrame,
                    Aijprime_df: pd.DataFrame,
                    Bijprime_df: pd.DataFrame,
-                   zfactors: pd.DataFrame):
+                   zfactors: dict):
     ### Fugacity coefficients calculation
     fugacit_df = pd.DataFrame(columns=phasevar_df.index, index=streamcomp.index)
     for phase in phasevar_df.index:
@@ -345,7 +398,7 @@ def get_fugacities(streamcomp:pd.DataFrame,
         for component in streamcomp.index:
             Aijprime = Aijprime_df.loc[component][phase]
             Bijprime = Bijprime_df.loc[component][phase]
-            zj = zfactors.loc[phase]['zj']
+            zj = zfactors[phase]
             try:
                 f = math.exp(-math.log(zj - Bj) + (zj - 1) * Bijprime \
                              - Aj / (2 * math.sqrt(2) * Bj) * (Aijprime - Bijprime) \
@@ -400,7 +453,7 @@ def redefine_equicomp(equicomp_df_in: pd.DataFrame,
 
 
 ### All functions combined
-def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
+def flash_calc_PR_EOS_obsolete(comppropDB: pd.DataFrame,
                       binarycoefDB: pd.DataFrame,
                       input_streamcomp: pd.DataFrame,
                       P_field: float,
@@ -420,7 +473,7 @@ def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
         phases_num = 3
         interactions_name = ['vapor-aqueous', 'vapor-liquid']
 
-    for interphase in range(phases_num - 1):  # runs calculations once for 'vapor-liquid' systems and twice for 'vapor-liquid-aqueous' systems
+    for interphase in range(1):#range(phases_num - 1):  # runs calculations once for 'vapor-liquid' systems and twice for 'vapor-liquid-aqueous' systems
         if interphase == 0:
             streamcomp = input_streamcomp
         else:
@@ -428,7 +481,7 @@ def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
 
         ### STEP - 1: K's estimation using eq. (3-5) and (3-8)
         Kvalues_init_df = get_initial_Kvalues(comppropDB, streamcomp, P_field, T_field)
-
+        print('-->init K-values:', Kvalues_init_df)
         err_list = list()
         calc_err = 10 ** 6
         steps = 0
@@ -440,8 +493,9 @@ def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
                                         streamcomp,
                                         T_field)
             ### Equlibrium copositions
-            equicomp_df, L = get_equilibrium_composition_v1(streamcomp,
+            equicomp_df, L = get_equilibrium_composition_v2(streamcomp,
                                                             Kvalues_init_df,
+                                                            1e-10,
                                                             False)
             ### STEP 3: - Fugacity coefficients calculation
             phasevar_df = get_phasedepvar(equicomp_df,
@@ -455,9 +509,9 @@ def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
                                                            equicomp_df,
                                                            binarycoefDB)
             ### STEP 4: - Compressibility factors calculation
-            zfactors = pd.DataFrame(columns=['zj'], index=phasevar_df.index)
+            zfactors = dict()
             for phase in phasevar_df.index:
-                zfactors.loc[phase]['zj'] = get_zfactor(phasevar_df.loc[phase]['Aj'],
+                zfactors[phase] = get_zfactor(phasevar_df.loc[phase]['Aj'],
                                                         phasevar_df.loc[phase]['Bj'],
                                                         phase,
                                                         False)
@@ -476,12 +530,15 @@ def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
             if steps > steps_limit:
                 print('WARNING: K-values did not converged!')
                 break
-            # print('K-values at iteration:\n', Kvalues_single_df)
+            print('K-values at iteration {}:\n'.format(steps), Kvalues_single_df)
 
-        equicomp_df_final, L_final = get_equilibrium_composition_v1(streamcomp,
+        equicomp_df_final, L_final = get_equilibrium_composition_v2(streamcomp,
                                                                     Kvalues_single_df,
+                                                                    1e-10,
                                                                     False)
-        '''
+        print('\n-->equicomp_df:',equicomp_df_final)
+        print('-->L = {:.4f}'.format(L_final))
+
         if abs(equicomp_df_final['vapor'].sum() - 1) >= 1e-3:
             equicomp_df_final['vapor'] = equicomp_df_final['liquid']
             equicomp_df_final['liquid'] = pd.Series([0] * len(equicomp_df_final.index))
@@ -489,7 +546,7 @@ def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
             if abs(equicomp_df_final['vapor'].sum() - 1) < 1e-3:
                 # stop_flag = True
                 print('flag switch')
-        '''
+
         if abs(equicomp_df_final['vapor'].sum() - 1) >= 0.01:  # temporary measure to handle difficult steams (exmp. Stream6 @ 60 bara, 60 C
             equicomp_df_final['vapor'], equicomp_df_final['liquid'] = equicomp_df_final['liquid'], equicomp_df_final['vapor']
             L_final = 1 - L_final
@@ -517,7 +574,159 @@ def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
         equicomp_df_threephases['aqueous'] = pd.Series([0] * len(equicomp_df_threephases.index),
                                                        index= equicomp_df_threephases.index)
         equicomp_df_threephases.loc['H2O', 'aqueous'] = 1
-    return equicomp_df_threephases, phase_fractions, zfactors
+    # return equicomp_df_threephases, phase_fractions, zfactors
+    return equicomp_df_final, phase_fractions, zfactors, Kvalues_df
+
+
+def two_phase_VLE(comppropDB: pd.DataFrame,
+                  binarycoefDB: pd.DataFrame,
+                  streamcomp: pd.DataFrame,
+                  P_field: float,
+                  T_field: float,
+                  convcrit_K: float,
+                  convcrit_L: float,
+                  steps_limit: int):
+    ### Initial variables setup
+    Kvalues_df = pd.DataFrame(columns=['Kij'], index=streamcomp.index) # df used to store K-values for single interaction inside iterations
+    phase_fractions = dict()
+
+    ### K-values estimation using Wilson's K-value equation
+    Kvalues_init_df = get_initial_Kvalues(comppropDB, streamcomp, P_field, T_field)
+    #print('\n-->initial Kvalues', Kvalues_init_df)
+
+    calc_err = 1  # To initiate K-values cycle
+    steps = 0
+    while calc_err >= convcrit_K:
+        if steps > steps_limit:
+            print('WARNING: K-values did not converged!')
+            break
+        steps += 1
+        #print('-----step-{}'.format(steps))
+        ### Calculate component-dependent variables
+        compvar_df = get_compdepvar(comppropDB, streamcomp, T_field)
+        #print('\n-->compvar', compvar_df)
+
+        ### Calculate equilibrium copositions
+        equicomp_df, L = get_equilibrium_composition_v2(streamcomp, Kvalues_init_df, convcrit_L, False)
+        #print('\n-->equicomp-1, L', equicomp_df, L)
+
+        ### Calculate phase-dependent variables
+        phasevar_df = get_phasedepvar(equicomp_df, compvar_df, binarycoefDB, P_field, T_field)
+        #print('\n-->phasevar', phasevar_df)
+
+        ### Calculate phase-component-dependent variables
+        Aijprime_df, Bijprime_df = get_phasecompdepvar(phasevar_df, compvar_df, equicomp_df, binarycoefDB)
+        #print('\n-->Aijprime, Bijprime', Aijprime_df, Bijprime_df)
+
+        ### Calculate compressibility factors
+        zfactors = dict()
+        for phase in phasevar_df.index:
+            zfactors[phase] = get_zfactor(phasevar_df.loc[phase]['Aj'], phasevar_df.loc[phase]['Bj'], phase, False)
+        #print('\n-->zfactors', zfactors)
+
+        ### Calculate fugacity coefficients factors
+        fugacit_df = get_fugacities(streamcomp, phasevar_df, Aijprime_df, Bijprime_df, zfactors)
+        #print('\n-->fugacities', fugacit_df)
+
+        ### Calculate the new set of K-values
+        Kvalues_df = get_Kvalues(fugacit_df)
+        #print('\n-->Kvalues', Kvalues_df)
+
+        ### Calculate error between K-values sets ande rearrange df's for next iteration
+        calc_err = Kvalues_comparison(Kvalues_init_df, Kvalues_df)
+        Kvalues_init_df['Kij'] = Kvalues_df['Kij']
+        print('K-values error at iteration {}: {:.3e}'.format(steps, calc_err))
+        #print('K-values at iteration {}:\n'.format(steps), Kvalues_df)
+
+    ### Calculate final VLE equicomposition
+    equicomp_df, L = get_equilibrium_composition_v2(streamcomp, Kvalues_df, convcrit_L, False)
+    phase_fractions['vapor'] = 1 - L
+    phase_fractions['liquid'] = L
+    return equicomp_df, phase_fractions, zfactors, Kvalues_df
+
+
+def flash_calc_PR_EOS(comppropDB: pd.DataFrame,
+                      binarycoefDB: pd.DataFrame,
+                      input_streamcomp: pd.DataFrame,
+                      P_field: float,
+                      T_field: float,
+                      convcrit_K: float,
+                      steps_limit: int):
+    ### Initial variables setup
+    equicomp_df_3ph = pd.DataFrame(columns=['vapor', 'liquid', 'aqueous'], index=input_streamcomp.index)
+    phase_fractions_3ph = dict({'vapor' : 0., 'liquid' : 0., 'aqueous' : 0.})
+    Kvalues_df_3ph = pd.DataFrame(columns=['Kign', 'Kigq'], index=input_streamcomp.index)
+    zfactors_3ph = dict()
+
+    ### First flash calcuation
+    equicomp_df, phase_fractions, zfactors, Kvalues_df = two_phase_VLE(comppropDB,
+                                                                       binarycoefDB,
+                                                                       input_streamcomp,
+                                                                       P_field,
+                                                                       T_field,
+                                                                       convcrit_K,
+                                                                       1e-6,
+                                                                       steps_limit)
+    ### Fill 3-phase equicomposition df
+    if zfactors['vapor'] > zfactors['liquid']:
+        equicomp_df_3ph['vapor'] = equicomp_df['vapor']
+        equicomp_df_3ph['liquid'] = equicomp_df['liquid']
+        phase_fractions_3ph['vapor'] = phase_fractions['vapor']
+        phase_fractions_3ph['liquid'] = phase_fractions['liquid']
+        zfactors_3ph['vapor'] = zfactors['vapor']
+        zfactors_3ph['liquid'] = zfactors['liquid']
+        Kvalues_df_3ph['Kign'] = Kvalues_df['Kij']
+    elif zfactors['vapor'] < zfactors['liquid']:
+        equicomp_df_3ph['vapor'] = equicomp_df['liquid']
+        equicomp_df_3ph['liquid'] = equicomp_df['vapor']
+        phase_fractions_3ph['vapor'] = phase_fractions['liquid']
+        phase_fractions_3ph['liquid'] = phase_fractions['vapor']
+        zfactors_3ph['vapor'] = zfactors['liquid']
+        zfactors_3ph['liquid'] = zfactors['vapor']
+        Kvalues_df_3ph['Kign'] = Kvalues_df['Kij']
+    else:
+        print('Something went wrong with z-factors...')
+
+    if phase_fractions_3ph['vapor'] <= 1e-5:
+        phase_fractions_3ph['vapor'] = 0
+        phase_fractions_3ph['liquid'] = 1
+        equicomp_df_3ph['vapor'] = 0
+    elif phase_fractions_3ph['liquid'] <= 1e-5:
+        phase_fractions_3ph['liquid'] = 0
+        phase_fractions_3ph['vapor'] = 1
+        equicomp_df_3ph['liquid'] = 0
+    else:
+        ### Stability test for vapor phase and second flash calculation
+        #print('---STABILITY TEST---')
+        input_streamcomp['Content [mol. fract.]'] = equicomp_df_3ph['vapor']
+        # print('-->input', input_streamcomp)
+        try:
+            equicomp_df, phase_fractions, zfactors, Kvalues_df = two_phase_VLE(comppropDB,
+                                                                           binarycoefDB,
+                                                                           input_streamcomp,
+                                                                           P_field,
+                                                                           T_field,
+                                                                           convcrit_K,
+                                                                           1e-10,
+                                                                           steps_limit)
+
+            if phase_fractions['vapor'] > 1e-5:
+                ### Phase unstable and should be separated further
+                equicomp_df_3ph['aqueous'] = equicomp_df_3ph['liquid']
+                equicomp_df_3ph['vapor'] = equicomp_df['vapor']
+                equicomp_df_3ph['liquid'] = equicomp_df['liquid']
+                phase_fractions_3ph['aqueous'] = phase_fractions_3ph['liquid']
+                phase_fractions_3ph['vapor'] = (1 - phase_fractions_3ph['aqueous']) * phase_fractions['vapor']
+                phase_fractions_3ph['liquid'] = (1 - phase_fractions_3ph['aqueous']) * phase_fractions['liquid']
+                zfactors_3ph['aqueous'] = zfactors_3ph['liquid']
+                zfactors_3ph['vapor'] = zfactors['vapor']
+                zfactors_3ph['liquid'] = zfactors['liquid']
+                Kvalues_df_3ph['kigq'] = Kvalues_df_3ph['Kign']
+                Kvalues_df_3ph['kign'] = Kvalues_df['Kij']
+        except:
+            print('Vapor phase is stable')
+
+    return equicomp_df_3ph, phase_fractions_3ph, zfactors_3ph, Kvalues_df_3ph
 
 
 def get_phase_molar_weigh(comppropDB: pd.DataFrame,
@@ -590,14 +799,14 @@ def get_phase_densities_actcond(comppropDB: pd.DataFrame,
                                 phase_fractions: dict,  # temporary (?) measure to detect missing phases
                                 P_field: float,
                                 T_field: float,
-                                zfactors: pd.DataFrame):
+                                zfactors: dict):
     densities_dict = dict()
     ### Calculating vapor phase density in actual conditions
     P = UnitsConverter.Pressure.psi_to_kPa(P_field)
     T = UnitsConverter.Temperature.R_to_K(T_field)
     R = 8.31446261815324 # [J/(mole*K)]
     MW = get_phase_molar_weigh(comppropDB, equicomp_df, 'vapor')
-    densities_dict['vapor'] = MW / (zfactors.loc['vapor']['zj'] * R * T / P)
+    densities_dict['vapor'] = MW / (zfactors['vapor'] * R * T / P)
 
     ### Caclulation liquid and/or aqueous phase density in actual conditions
     # if equicomp_df['aqueous'].dtype == float:

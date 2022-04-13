@@ -40,15 +40,27 @@ for P in P_list:
             header_df = pd.DataFrame({('{} @ {:.1f} bara, {:.1f} C'.format(streamcomp_name, P / 100, T), '', '')},
                                      columns=(['vapor', 'liquid', 'aqueous']),
                                      index=(['STREAM']))
+            input_streamcomp = pd.read_excel(streamcomp_name, index_col='Name')
+            '''
+            equicomp_df, phase_fract, zfactors, Kvalues = calc.flash_calc_PR_EOS(comppropDB,
+                                                                                 binarycoefDB,
+                                                                                 input_streamcomp,
+                                                                                 P_field,
+                                                                                 T_field,
+                                                                                 convcrit,
+                                                                                 steps_limit)
+            print(equicomp_df)
+            '''
             try:
                 input_streamcomp = pd.read_excel(streamcomp_name, index_col='Name')
-                equicomp_df, phase_fract, zfactors = calc.flash_calc_PR_EOS(comppropDB,
+                equicomp_df, phase_fract, zfactors, Kvalues = calc.flash_calc_PR_EOS(comppropDB,
                                                                             binarycoefDB,
                                                                             input_streamcomp,
                                                                             P_field,
                                                                             T_field,
                                                                             convcrit,
                                                                             steps_limit)
+                print(equicomp_df)
                 try:
                     densities = calc.get_phase_densities_actcond(comppropDB,
                                                                  equicomp_df,
